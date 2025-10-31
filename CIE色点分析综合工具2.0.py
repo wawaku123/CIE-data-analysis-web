@@ -1,4 +1,4 @@
-import streamlit as st
+import c as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -1569,13 +1569,6 @@ def main():
                             st.subheader(f"文件: {file_name}")
                             st.text(f"总点数: {stats['total_points']}")
 
-                            # 图表类型选择器（自动触发更新）
-                            chart_type = st.radio(
-                                "选择图表类型",
-                                ["柱状图", "饼图"],
-                                key=f"chart_type_{file_name}"
-                            )
-
                             # 生成对应图表
                             stats_data = []
                             for zone_name, zone_stats in stats['zones'].items():
@@ -1587,39 +1580,37 @@ def main():
                             stats_df = pd.DataFrame(stats_data)
                             st.dataframe(stats_df)
 
-                            if chart_type == "柱状图":
-                                fig = px.bar(
-                                    stats_df,
-                                    x='色区',
-                                    y='占比(%)',
-                                    title=f'{file_name} 各色区占比（基于{statistic_basis}）',
-                                    text='占比(%)',
-                                    color='色区',
-                                    color_discrete_sequence=color_list,
-                                    hover_data=['点数', '占比(%)']
-                                )
-                                fig.update_traces(
-                                    hovertemplate='色区: %{x}<br>数量: %{customdata[0]}<br>占比: %{customdata[1]:.2f}%<extra></extra>'
-                                )
-                                fig.update_layout(
-                                    yaxis=dict(title='占比(%)', range=[0, 100]),
-                                    showlegend=False
-                                )
-                            else:  # 饼图
-                                fig = px.pie(
-                                    stats_df,
-                                    values='占比(%)',
-                                    names='色区',
-                                    title=f'{file_name} 各色区占比（基于{statistic_basis}）',
-                                    color='色区',
-                                    color_discrete_sequence=color_list,
-                                    hover_data=['点数', '占比(%)']
-                                )
-                                fig.update_traces(
-                                    hovertemplate='色区: %{label}<br>数量: %{customdata[0]}<br>占比: %{customdata[1]:.2f}%<extra></extra>',
-                                    textinfo='label+percent'
-                                )
+                            # 生成柱状图（默认）
+                            stats_data = []
+                            for zone_name, zone_stats in stats['zones'].items():
+                                stats_data.append({
+                                    '色区': zone_name,
+                                    '点数': zone_stats['count'],
+                                    '占比(%)': round(zone_stats['percentage'], 2)
+                                })
+                            stats_df = pd.DataFrame(stats_data)
+                            st.dataframe(stats_df)
+
+                            # 直接生成柱状图
+                            fig = px.bar(
+                                stats_df,
+                                x='色区',
+                                y='占比(%)',
+                                title=f'{file_name} 各色区占比（基于{statistic_basis}）',
+                                text='占比(%)',
+                                color='色区',
+                                color_discrete_sequence=color_list,
+                                hover_data=['点数', '占比(%)']
+                            )
+                            fig.update_traces(
+                                hovertemplate='色区: %{x}<br>数量: %{customdata[0]}<br>占比: %{customdata[1]:.2f}%<extra></extra>'
+                            )
+                            fig.update_layout(
+                                yaxis=dict(title='占比(%)', range=[0, 100]),
+                                showlegend=False
+                            )
                             st.plotly_chart(fig, use_container_width=True)
+
 
                             # 计算并显示总占比
                             if selected_total_zones and stats['total_points'] > 0:
@@ -1972,8 +1963,69 @@ def main():
                         except Exception as e:
                             st.error(f"生成交叉分析时出错: {str(e)}")
 
-                        # 5. 产出分布综合分析
-                        st.subheader("5. 产出分布综合分析")
+                        # 5. bin产出分布统计（新增）
+                        st.subheader("5. bin产出分布统计 (1-80排序)")
+
+                        # 定义1到80的bin号
+                        bins_1_to_80 = list(range(1, 81))  # 生成1-80的列表
+
+                        # 1. 定义需要统计的bin号范围（1-80）
+                        bins_1_to_80 = list(range(1, 81))  # 生成[1,2,...,80]的列表
+
+                        # 2. 统计bin列，并按1-80的范围对齐，缺失的bin号计数填充为0
+                        bin_counts = df['bin'].value_counts().reindex(bins_1_to_80, fill_value=0)
+                        bin_percent = [round((count / total_points * 100), 2) for count in bin_counts.values]
+
+                        # 创建统计表格（只包含bin号、计数、占比）
+                        bin_stats = pd.DataFrame({
+                            'bin号': bins_1_to_80,
+                            '计数': bin_counts.values,
+                            '占比(%)': bin_percent
+                        })
+                        # 按bin号升序排列（确保1-80顺序）
+                        bin_stats = bin_stats.sort_values('bin号').reset_index(drop=True)
+                        st.dataframe(bin_stats)  # 显示表格
+
+                        # 生成柱状图展示bin分布
+                        fig = px.bar(
+                            bin_stats,
+                            x='bin号',
+                            y='计数',
+                            title=f'{file_name} bin产出分布 (1-80)',
+                            color='计数',
+                            color_continuous_scale='Viridis',
+                            hover_data=['bin号', '计数', '占比(%)']
+                        )
+                        fig.update_layout(
+                            xaxis=dict(tickmode='linear', dtick=5),  # 每5个bin号显示一个刻度
+                            xaxis_title='bin号',
+                            yaxis_title='计数'
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+
+                        # 生成饼图（仅显示有数据的bin，避免80个类别拥挤）
+                        filtered_bin_stats = bin_stats[bin_stats['计数'] > 0]
+                        if not filtered_bin_stats.empty:
+                            fig = px.pie(
+                                filtered_bin_stats,
+                                values='计数',
+                                names='bin号',
+                                title=f'{file_name} bin产出分布（仅显示有数据的bin）',
+                                color='bin号',
+                                color_discrete_sequence=color_list  # 使用预设颜色列表
+                            )
+                            # 饼图悬停信息：包含计数、占比
+                            fig.update_traces(
+                                hovertemplate='bin号: %{label}<br>计数: %{value}<br>占比: %{percent}<extra></extra>',
+                                customdata=list(zip(filtered_bin_stats['占比(%)']))
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("当前筛选条件下没有bin数据")
+
+
+                        # 6. 产出分布综合分析
+                        st.subheader("6. 产出分布综合分析")
 
                         # 计算各参数的主要分布区域
                         try:
@@ -2336,17 +2388,17 @@ def main():
                                         )
                                         st.plotly_chart(fig_y, use_container_width=True)
 
-                                if fig:
-                                    st.plotly_chart(fig, use_container_width=True)
-                                    st.markdown("### 使用说明")
-                                    st.markdown("- 鼠标悬停：查看点的详细数值")
-                                    st.markdown("- 滚轮：缩放图表")
-                                    st.markdown("- 拖动：平移图表")
-                                    st.markdown("- 选择区域：框选局部区域放大")
-                                    st.markdown("- 双击：重置视图")
-                                    st.markdown("- 点击图例：显示/隐藏特定标记")
-                                else:
-                                    st.warning("无法生成Mapping图，可能是筛选后没有剩余数据点")
+                                with st.spinner("正在生成Mapping图..."):
+                                    # CIE X Mapping图（上）
+                                    title_x = f'{material_file} - ciex Mapping图 ({product_type_mapping})'
+                                    fig_x = generate_interactive_mapping_plot(...)
+                                    st.plotly_chart(fig_x, use_container_width=True)
+
+                                    # CIE Y Mapping图（下）
+                                    title_y = f'{material_file} - ciey Mapping图 ({product_type_mapping})'
+                                    fig_y = generate_interactive_mapping_plot(...)
+                                    st.plotly_chart(fig_y, use_container_width=True)
+
                 else:
                     st.info("请上传材料文件以进行Mapping图分析")
 
